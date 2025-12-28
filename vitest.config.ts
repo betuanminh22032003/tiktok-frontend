@@ -13,6 +13,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
+      enabled: false, // Disable by default, enable with --coverage flag
+      include: ['app/**/*.{ts,tsx}', 'libs/**/*.{ts,tsx}'],
       exclude: [
         'node_modules/',
         '.next/',
@@ -21,6 +23,8 @@ export default defineConfig({
         '**/*.d.ts',
         '**/*.config.*',
         '**/coverage/**',
+        '**/*.test.{ts,tsx}',
+        '**/*.spec.{ts,tsx}',
       ],
     },
   },
