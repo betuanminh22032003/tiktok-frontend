@@ -149,7 +149,11 @@ jobs:
           cache: ${{ env.NPM_CACHE }}
 
       - name: 📚 Install Dependencies
-        run: npm install --legacy-peer-deps
+        run: |
+          # Clean install to avoid optional dependency issues with legacy-peer-deps
+          # See: https://github.com/npm/cli/issues/4828
+          rm -rf node_modules package-lock.json
+          npm install --legacy-peer-deps --include=optional
 
       # Run tests with coverage
       - name: 🧪 Run Unit Tests
