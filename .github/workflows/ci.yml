@@ -101,10 +101,8 @@ jobs:
       - name: 📚 Install Dependencies
         run: |
           # Install dependencies with legacy-peer-deps for React 19 compatibility
+          # Include optional deps (needed for platform-specific binaries like @rollup)
           npm install --legacy-peer-deps
-        env:
-          # Skip optional dependencies to speed up install
-          NPM_CONFIG_OPTIONAL: false
 
       # Step 4: Run ESLint for code style and potential bugs
       - name: 🔧 Run ESLint
