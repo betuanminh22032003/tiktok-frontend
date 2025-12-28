@@ -30,7 +30,7 @@ export default function Register() {
     setError(null)
     let isError = false
 
-    const reg = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/
+    const reg = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/
 
     if (!name) {
       setError({ type: 'name', message: 'A Name is required' })
