@@ -25,7 +25,7 @@ image:
   pullPolicy: IfNotPresent
   
   # Image tag - updated by CI/CD
-  tag: "main-219df13-20251228"
+  tag: "staging"
 
 # -----------------------------------------------------------------------------
 # Service Configuration
