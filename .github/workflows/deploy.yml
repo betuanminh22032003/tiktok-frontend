@@ -28,8 +28,8 @@ on:
       
       # Image tag to deploy
       image_tag:
-        description: 'Image tag to deploy (leave empty to use latest from source env)'
-        required: false
+        description: 'Image tag to deploy (required if not promoting)'
+        required: true
         type: string
       
       # Source environment for promotion
@@ -107,8 +107,23 @@ jobs:
             echo "Promoting tag from $PROMOTE_FROM: $TAG"
           
           else
-            echo "❌ Either image_tag or promote_from must be specified"
-            exit 1
+            # Default: Use current tag from target environment's values file
+            TARGET_VALUES="charts/tiktok-fe/values-${TARGET_ENV}.yaml"
+            
+            if [ ! -f "$TARGET_VALUES" ]; then
+              echo "❌ Target values file not found: $TARGET_VALUES"
+              exit 1
+            fi
+            
+            # Extract current tag from target environment
+            TAG=$(grep "tag:" "$TARGET_VALUES" | head -1 | awk '{print $2}' | tr -d '"')
+            
+            if [ -z "$TAG" ]; then
+              echo "❌ Could not find image tag in $TARGET_VALUES"
+              exit 1
+            fi
+            
+            echo "Using current tag from ${TARGET_ENV}: $TAG"
           fi
           
           echo "tag=$TAG" >> $GITHUB_OUTPUT
