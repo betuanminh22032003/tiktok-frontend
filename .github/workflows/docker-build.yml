@@ -1,0 +1,364 @@
+# ============================================================================
+# TikTok Frontend - Build & Push Docker Image Workflow
+# ============================================================================
+# This workflow builds the Docker image and pushes it to the container registry.
+# It's triggered after CI passes on main/develop branches or on release tags.
+#
+# Features:
+# - Multi-architecture builds (amd64, arm64)
+# - Layer caching for fast rebuilds
+# - Semantic versioning for tags
+# - Security scanning with Trivy
+# ============================================================================
+
+name: Build & Push Docker Image
+
+# Workflow triggers
+on:
+  # Run after CI workflow completes successfully
+  workflow_run:
+    workflows: ["CI - Lint, Test & Build"]
+    types:
+      - completed
+    branches:
+      - main
+      - develop
+
+  # Run on version tags (e.g., v1.0.0, v1.2.3-beta.1)
+  push:
+    tags:
+      - 'v*.*.*'
+
+  # Allow manual trigger with custom parameters
+  workflow_dispatch:
+    inputs:
+      # Environment to build for
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      # Custom image tag
+      custom_tag:
+        description: 'Custom image tag (optional)'
+        required: false
+        type: string
+
+# Cancel in-progress builds for the same ref
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+# Environment variables
+env:
+  # Container registry (GitHub Container Registry)
+  REGISTRY: ghcr.io
+  # Image name (uses repository name)
+  IMAGE_NAME: ${{ github.repository }}
+  # Platforms to build for
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  # ===========================================================================
+  # Job 1: Prepare Build Context
+  # ===========================================================================
+  # Determine build parameters based on trigger
+  prepare:
+    name: 📋 Prepare Build
+    runs-on: ubuntu-latest
+    # Only run if CI passed (for workflow_run trigger)
+    if: |
+      github.event_name != 'workflow_run' || 
+      github.event.workflow_run.conclusion == 'success'
+    
+    outputs:
+      # Output variables for downstream jobs
+      environment: ${{ steps.set-env.outputs.environment }}
+      image_tag: ${{ steps.set-tag.outputs.tag }}
+      should_push: ${{ steps.set-push.outputs.push }}
+    
+    steps:
+      # Determine target environment based on branch/tag
+      - name: 🎯 Set Environment
+        id: set-env
+        run: |
+          # Default to dev environment
+          ENV="dev"
+          
+          # Check for manual input first
+          if [ -n "${{ github.event.inputs.environment }}" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          # Tag pushes go to staging (manual promotion to prod)
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            ENV="staging"
+          # Main branch goes to staging
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="staging"
+          # Develop branch goes to dev
+          elif [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            ENV="dev"
+          fi
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "📍 Target environment: $ENV"
+
+      # Generate image tag based on context
+      - name: 🏷️ Set Image Tag
+        id: set-tag
+        run: |
+          # Use custom tag if provided
+          if [ -n "${{ github.event.inputs.custom_tag }}" ]; then
+            TAG="${{ github.event.inputs.custom_tag }}"
+          # Use version from tag (e.g., v1.0.0 -> 1.0.0)
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            TAG="${{ github.ref_name }}"
+            TAG="${TAG#v}"  # Remove 'v' prefix
+          # Use short SHA for branch builds
+          else
+            # Format: branch-sha-date (e.g., develop-abc1234-20231228)
+            BRANCH="${{ github.ref_name }}"
+            BRANCH="${BRANCH//\//-}"  # Replace / with -
+            SHA="${{ github.sha }}"
+            SHA="${SHA:0:7}"  # First 7 chars
+            DATE=$(date +%Y%m%d)
+            TAG="${BRANCH}-${SHA}-${DATE}"
+          fi
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "🏷️ Image tag: $TAG"
+
+      # Determine if we should push to registry
+      - name: 📤 Set Push Flag
+        id: set-push
+        run: |
+          # Push for main, develop, tags, or manual trigger
+          PUSH="false"
+          
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PUSH="true"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            PUSH="true"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            PUSH="true"
+          elif [ "${{ github.ref }}" == "refs/heads/develop" ]; then
+            PUSH="true"
+          fi
+          
+          echo "push=$PUSH" >> $GITHUB_OUTPUT
+          echo "📤 Push to registry: $PUSH"
+
+  # ===========================================================================
+  # Job 2: Build and Push Docker Image
+  # ===========================================================================
+  build:
+    name: 🐳 Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [prepare]
+    
+    # Required permissions for GHCR
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      # Checkout repository
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Set up QEMU for multi-architecture builds
+      - name: 🔧 Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: ${{ env.PLATFORMS }}
+
+      # Set up Docker Buildx for advanced builds
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          # Use docker-container driver for cache export
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      # Login to GitHub Container Registry
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Extract metadata for Docker image
+      - name: 📝 Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Use prepared tag
+            type=raw,value=${{ needs.prepare.outputs.image_tag }}
+            # Add latest tag for main branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # Add environment tag
+            type=raw,value=${{ needs.prepare.outputs.environment }}
+          labels: |
+            org.opencontainers.image.title=TikTok Frontend
+            org.opencontainers.image.description=TikTok Clone Frontend Application
+            org.opencontainers.image.vendor=TikTok Clone
+
+      # Build and push Docker image
+      - name: 🏗️ Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          # Build for multiple architectures
+          platforms: ${{ env.PLATFORMS }}
+          # Push if flag is set
+          push: ${{ needs.prepare.outputs.should_push == 'true' }}
+          # Tags from metadata
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Build arguments for environment
+          build-args: |
+            NEXT_PUBLIC_APP_ENV=${{ needs.prepare.outputs.environment }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ needs.prepare.outputs.image_tag }}
+          # Cache configuration for faster builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Provenance for security
+          provenance: true
+          sbom: true
+
+      # Output image digest
+      - name: 📋 Output Image Details
+        run: |
+          echo "## 🐳 Docker Image Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | ${{ env.REGISTRY }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | ${{ env.IMAGE_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | ${{ needs.prepare.outputs.image_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ needs.prepare.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platforms | ${{ env.PLATFORMS }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Job 3: Security Scan
+  # ===========================================================================
+  # Scan the built image for vulnerabilities
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_push == 'true'
+    
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Login to pull the image
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Run Trivy vulnerability scanner
+      - name: 🔍 Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.image_tag }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          # Don't fail on vulnerabilities, just report
+          exit-code: '0'
+
+      # Upload scan results to GitHub Security
+      - name: 📤 Upload Trivy Scan Results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # ===========================================================================
+  # Job 4: Trigger Deployment
+  # ===========================================================================
+  # Trigger ArgoCD deployment by updating values file
+  trigger-deploy:
+    name: 🚀 Trigger Deployment
+    runs-on: ubuntu-latest
+    needs: [prepare, build, security-scan]
+    if: needs.prepare.outputs.should_push == 'true'
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # Use PAT to trigger other workflows
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # Update the appropriate values file for ArgoCD
+      - name: 📝 Update Helm Values
+        run: |
+          ENV="${{ needs.prepare.outputs.environment }}"
+          TAG="${{ needs.prepare.outputs.image_tag }}"
+          VALUES_FILE="charts/tiktok-fe/values-${ENV}.yaml"
+          
+          echo "📝 Updating $VALUES_FILE with tag: $TAG"
+          
+          # Update image tag in values file
+          # Using sed for simple replacement
+          sed -i "s|tag:.*|tag: \"${TAG}\"|g" "$VALUES_FILE"
+          
+          # Show the change
+          echo "📋 Updated values:"
+          grep -A2 "image:" "$VALUES_FILE" || true
+
+      # Commit and push the change
+      - name: 📤 Commit and Push
+        run: |
+          ENV="${{ needs.prepare.outputs.environment }}"
+          TAG="${{ needs.prepare.outputs.image_tag }}"
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check for changes
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          # Commit and push
+          git add charts/
+          git commit -m "chore(deploy): update ${ENV} image to ${TAG} [skip ci]"
+          git push
+          
+          echo "✅ Deployment triggered for $ENV environment"
+
+      # Summary
+      - name: 📋 Deployment Summary
+        run: |
+          echo "## 🚀 Deployment Triggered" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ needs.prepare.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ needs.prepare.outputs.image_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ArgoCD GitOps |" >> $GITHUB_STEP_SUMMARY

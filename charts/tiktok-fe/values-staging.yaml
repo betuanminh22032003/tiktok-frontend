@@ -1,0 +1,169 @@
+# ============================================================================
+# TikTok Frontend - Staging Environment Values
+# ============================================================================
+# Configuration overrides for the staging environment.
+# Staging mirrors production configuration for accurate testing.
+#
+# Environment: staging
+# Purpose: Pre-production testing, QA
+# Cluster: staging-cluster
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica Configuration - Match production for testing
+# -----------------------------------------------------------------------------
+replicaCount: 2
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
+image:
+  # Use same registry as production
+  repository: ghcr.io/your-org/tiktok-frontend
+  
+  # Use IfNotPresent for stability
+  pullPolicy: IfNotPresent
+  
+  # Image tag - updated by CI/CD
+  tag: "staging-latest"
+
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration - Staging domain
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # Use staging cert-manager issuer
+    cert-manager.io/cluster-issuer: "letsencrypt-staging"
+  
+  hosts:
+    - host: staging.tiktok-clone.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  tls:
+    - secretName: tiktok-fe-staging-tls
+      hosts:
+        - staging.tiktok-clone.example.com
+
+# -----------------------------------------------------------------------------
+# Resource Configuration - Match production
+# -----------------------------------------------------------------------------
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Autoscaling - Enabled to test scaling
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# -----------------------------------------------------------------------------
+# PDB - Enabled for HA testing
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# -----------------------------------------------------------------------------
+# Pod Anti-Affinity - Spread across nodes
+# -----------------------------------------------------------------------------
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - tiktok-fe
+          topologyKey: kubernetes.io/hostname
+
+# -----------------------------------------------------------------------------
+# Environment Variables - Staging Configuration
+# -----------------------------------------------------------------------------
+env:
+  # Staging environment
+  NEXT_PUBLIC_APP_ENV: "staging"
+  NEXT_PUBLIC_APP_NAME: "TikTok Clone (Staging)"
+  
+  # Staging API URL
+  NEXT_PUBLIC_API_URL: "https://api-staging.tiktok-clone.example.com"
+  
+  # Staging CDN
+  NEXT_PUBLIC_CDN_URL: "https://cdn-staging.tiktok-clone.example.com"
+  
+  # Debug enabled for QA
+  NEXT_PUBLIC_API_DEBUG: "true"
+  
+  # Feature flags - same as production
+  NEXT_PUBLIC_ENABLE_UPLOAD: "true"
+  NEXT_PUBLIC_ENABLE_COMMENTS: "true"
+  NEXT_PUBLIC_ENABLE_LIVE: "false"
+  NEXT_PUBLIC_ENABLE_MESSAGING: "false"
+  
+  # Video constraints
+  NEXT_PUBLIC_MAX_VIDEO_DURATION: "60"
+  NEXT_PUBLIC_MAX_VIDEO_SIZE: "104857600"
+  
+  # WebSocket - Staging
+  NEXT_PUBLIC_SOCKET_URL: "wss://ws-staging.tiktok-clone.example.com"
+  NEXT_PUBLIC_ENABLE_WEBSOCKET: "true"
+  
+  # Monitoring enabled
+  NEXT_PUBLIC_ENABLE_MONITORING: "true"
+
+# -----------------------------------------------------------------------------
+# Health Probes - Production-like settings
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  failureThreshold: 30
+  periodSeconds: 10

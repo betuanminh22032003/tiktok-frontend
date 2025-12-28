@@ -1,0 +1,416 @@
+# ============================================================================
+# TikTok Frontend - Helm Values (Base Configuration)
+# ============================================================================
+# This is the base values file containing default configuration.
+# Environment-specific values files (values-dev.yaml, values-staging.yaml, 
+# values-prod.yaml) override these defaults.
+#
+# Structure:
+# - replicaCount: Number of pod replicas
+# - image: Container image configuration
+# - service: Kubernetes Service configuration
+# - ingress: Ingress configuration
+# - resources: CPU/Memory requests and limits
+# - autoscaling: HPA configuration
+# - env: Environment variables
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica Configuration
+# -----------------------------------------------------------------------------
+# Number of pod replicas to run
+# For high availability, use at least 2 in production
+replicaCount: 1
+
+# -----------------------------------------------------------------------------
+# Container Image Configuration
+# -----------------------------------------------------------------------------
+image:
+  # Container registry and repository
+  # GitHub Container Registry format: ghcr.io/owner/repo
+  repository: ghcr.io/your-org/tiktok-frontend
+  
+  # Image pull policy
+  # Always: Always pull image (good for :latest tags)
+  # IfNotPresent: Use cached image if available (good for specific tags)
+  # Never: Never pull, use local image only
+  pullPolicy: IfNotPresent
+  
+  # Image tag - overridden by CI/CD
+  # Use specific version tags in production, not :latest
+  tag: "latest"
+
+# Image pull secrets for private registries
+# Create secret: kubectl create secret docker-registry ghcr-secret ...
+imagePullSecrets: []
+  # - name: ghcr-secret
+
+# Override the chart name in resource names
+nameOverride: ""
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Service Account Configuration
+# -----------------------------------------------------------------------------
+serviceAccount:
+  # Create a service account for the application
+  create: true
+  
+  # Annotations for the service account
+  # Useful for IAM roles (AWS IRSA, GCP Workload Identity)
+  annotations: {}
+    # eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/role-name
+  
+  # Service account name (auto-generated if not specified)
+  name: ""
+
+# -----------------------------------------------------------------------------
+# Pod Configuration
+# -----------------------------------------------------------------------------
+# Annotations added to pods (not the deployment)
+podAnnotations: {}
+  # prometheus.io/scrape: "true"
+  # prometheus.io/port: "3000"
+  # prometheus.io/path: "/metrics"
+
+# Labels added to pods
+podLabels: {}
+  # app.kubernetes.io/component: frontend
+
+# Pod security context (applies to all containers)
+podSecurityContext:
+  # Run as non-root user (matches Dockerfile USER)
+  runAsNonRoot: true
+  # User ID to run as
+  runAsUser: 1001
+  # Group ID for filesystem
+  fsGroup: 1001
+  # Secure compute mode
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+securityContext:
+  # Prevent privilege escalation
+  allowPrivilegeEscalation: false
+  # Read-only root filesystem for security
+  readOnlyRootFilesystem: true
+  # Drop all capabilities
+  capabilities:
+    drop:
+      - ALL
+  # Run as non-root
+  runAsNonRoot: true
+  runAsUser: 1001
+
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
+service:
+  # Service type
+  # ClusterIP: Internal only (use with Ingress)
+  # NodePort: Expose on node ports
+  # LoadBalancer: Cloud provider load balancer
+  type: ClusterIP
+  
+  # Service port (external)
+  port: 80
+  
+  # Target port (container port)
+  targetPort: 3000
+  
+  # Protocol
+  protocol: TCP
+  
+  # Service annotations
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration
+# -----------------------------------------------------------------------------
+ingress:
+  # Enable ingress
+  enabled: true
+  
+  # Ingress class name (nginx, traefik, alb, etc.)
+  className: "nginx"
+  
+  # Ingress annotations
+  annotations:
+    # NGINX specific annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # Enable CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    # SSL redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # Cert-manager for TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  
+  # Ingress hosts configuration
+  hosts:
+    - host: tiktok.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  # TLS configuration
+  tls:
+    - secretName: tiktok-fe-tls
+      hosts:
+        - tiktok.example.com
+
+# -----------------------------------------------------------------------------
+# Resource Configuration
+# -----------------------------------------------------------------------------
+resources:
+  # Resource limits (maximum)
+  limits:
+    # Maximum CPU (1000m = 1 core)
+    cpu: 500m
+    # Maximum memory
+    memory: 512Mi
+  
+  # Resource requests (guaranteed)
+  requests:
+    # Minimum CPU
+    cpu: 100m
+    # Minimum memory
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Health Probes
+# -----------------------------------------------------------------------------
+# Liveness probe - restarts container if it fails
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  # Wait before starting probes
+  initialDelaySeconds: 10
+  # Time between probes
+  periodSeconds: 30
+  # Timeout for each probe
+  timeoutSeconds: 5
+  # Failures before restart
+  failureThreshold: 3
+  # Successes to be considered healthy
+  successThreshold: 1
+
+# Readiness probe - removes from service if it fails
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  # Wait before starting probes
+  initialDelaySeconds: 5
+  # Time between probes
+  periodSeconds: 10
+  # Timeout for each probe
+  timeoutSeconds: 5
+  # Failures before marking unhealthy
+  failureThreshold: 3
+  # Successes to be considered ready
+  successThreshold: 1
+
+# Startup probe - for slow-starting containers
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  # Failures allowed during startup
+  failureThreshold: 30
+  # Time between probes during startup
+  periodSeconds: 10
+
+# -----------------------------------------------------------------------------
+# Horizontal Pod Autoscaler
+# -----------------------------------------------------------------------------
+autoscaling:
+  # Enable HPA
+  enabled: false
+  
+  # Minimum replicas
+  minReplicas: 2
+  
+  # Maximum replicas
+  maxReplicas: 10
+  
+  # Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 70
+  
+  # Target memory utilization percentage
+  targetMemoryUtilizationPercentage: 80
+  
+  # Scale down stabilization window (seconds)
+  # Prevents flapping during scale down
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  # Enable PDB
+  enabled: true
+  
+  # Minimum available pods during disruption
+  minAvailable: 1
+  
+  # OR maximum unavailable (use one or the other)
+  # maxUnavailable: 1
+
+# -----------------------------------------------------------------------------
+# Node Selection and Scheduling
+# -----------------------------------------------------------------------------
+# Node selector for pod placement
+nodeSelector: {}
+  # kubernetes.io/os: linux
+  # node-type: frontend
+
+# Tolerations for tainted nodes
+tolerations: []
+  # - key: "dedicated"
+  #   operator: "Equal"
+  #   value: "frontend"
+  #   effect: "NoSchedule"
+
+# Affinity rules for pod placement
+affinity: {}
+  # Pod anti-affinity to spread across nodes
+  # podAntiAffinity:
+  #   preferredDuringSchedulingIgnoredDuringExecution:
+  #     - weight: 100
+  #       podAffinityTerm:
+  #         labelSelector:
+  #           matchExpressions:
+  #             - key: app.kubernetes.io/name
+  #               operator: In
+  #               values:
+  #                 - tiktok-fe
+  #         topologyKey: kubernetes.io/hostname
+
+# Topology spread constraints for even distribution
+topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: topology.kubernetes.io/zone
+  #   whenUnsatisfiable: ScheduleAnyway
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: tiktok-fe
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+# Environment variables for the container
+env:
+  # Application environment
+  NEXT_PUBLIC_APP_ENV: "development"
+  
+  # API configuration
+  NEXT_PUBLIC_API_URL: "http://localhost:4000"
+  
+  # CDN URL
+  NEXT_PUBLIC_CDN_URL: "http://localhost:4000/storage"
+  
+  # Feature flags
+  NEXT_PUBLIC_ENABLE_UPLOAD: "true"
+  NEXT_PUBLIC_ENABLE_COMMENTS: "true"
+
+# Environment variables from secrets
+envSecrets: []
+  # - name: API_SECRET_KEY
+  #   secretName: tiktok-secrets
+  #   secretKey: api-key
+
+# Environment variables from ConfigMaps
+envConfigMaps: []
+  # - name: CONFIG_VALUE
+  #   configMapName: tiktok-config
+  #   configMapKey: value
+
+# -----------------------------------------------------------------------------
+# ConfigMap Configuration
+# -----------------------------------------------------------------------------
+configMap:
+  # Create a ConfigMap with these values
+  enabled: true
+  
+  # ConfigMap data
+  data: {}
+    # Additional non-sensitive configuration
+
+# -----------------------------------------------------------------------------
+# Volume Configuration
+# -----------------------------------------------------------------------------
+# Extra volumes to mount
+volumes: []
+  # - name: tmp
+  #   emptyDir: {}
+  # - name: config
+  #   configMap:
+  #     name: tiktok-config
+
+# Extra volume mounts
+volumeMounts: []
+  # - name: tmp
+  #   mountPath: /tmp
+  # - name: config
+  #   mountPath: /app/config
+
+# -----------------------------------------------------------------------------
+# Additional Containers
+# -----------------------------------------------------------------------------
+# Sidecar containers
+sidecars: []
+  # - name: log-shipper
+  #   image: fluent/fluent-bit:latest
+  #   ...
+
+# Init containers
+initContainers: []
+  # - name: wait-for-api
+  #   image: busybox:latest
+  #   command: ['sh', '-c', 'until nc -z api-service 80; do sleep 2; done']
+
+# -----------------------------------------------------------------------------
+# Network Policy
+# -----------------------------------------------------------------------------
+networkPolicy:
+  # Enable network policy
+  enabled: false
+  
+  # Ingress rules
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - port: 3000
+  
+  # Egress rules
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 443
+        - port: 80

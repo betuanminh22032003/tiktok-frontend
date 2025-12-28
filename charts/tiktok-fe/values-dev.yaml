@@ -1,0 +1,134 @@
+# ============================================================================
+# TikTok Frontend - Development Environment Values
+# ============================================================================
+# Configuration overrides for the development environment.
+# These values override the base values.yaml settings.
+#
+# Environment: dev
+# Purpose: Development and testing
+# Cluster: dev-cluster
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica Configuration - Lower for dev
+# -----------------------------------------------------------------------------
+replicaCount: 1
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
+image:
+  # Use development registry
+  repository: ghcr.io/your-org/tiktok-frontend
+  
+  # Always pull in dev to get latest changes
+  pullPolicy: Always
+  
+  # Image tag - updated by CI/CD
+  tag: "dev-latest"
+
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration - Dev domain
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  
+  annotations:
+    # Dev-specific annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    # No SSL in dev (optional)
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Rate limiting (more lenient for testing)
+    nginx.ingress.kubernetes.io/limit-rps: "200"
+  
+  hosts:
+    - host: dev.tiktok-clone.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  # TLS disabled in dev (or use self-signed)
+  tls: []
+    # - secretName: tiktok-fe-dev-tls
+    #   hosts:
+    #     - dev.tiktok-clone.example.com
+
+# -----------------------------------------------------------------------------
+# Resource Configuration - Lower for dev
+# -----------------------------------------------------------------------------
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+
+# -----------------------------------------------------------------------------
+# Autoscaling - Disabled in dev
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# PDB - Disabled in dev
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# Environment Variables - Dev Configuration
+# -----------------------------------------------------------------------------
+env:
+  # Development environment
+  NEXT_PUBLIC_APP_ENV: "development"
+  NEXT_PUBLIC_APP_NAME: "TikTok Clone (Dev)"
+  
+  # Development API URL
+  NEXT_PUBLIC_API_URL: "https://api-dev.tiktok-clone.example.com"
+  
+  # Development CDN
+  NEXT_PUBLIC_CDN_URL: "https://cdn-dev.tiktok-clone.example.com"
+  
+  # Enable debug mode
+  NEXT_PUBLIC_API_DEBUG: "true"
+  
+  # All features enabled for testing
+  NEXT_PUBLIC_ENABLE_UPLOAD: "true"
+  NEXT_PUBLIC_ENABLE_COMMENTS: "true"
+  NEXT_PUBLIC_ENABLE_LIVE: "false"
+  NEXT_PUBLIC_ENABLE_MESSAGING: "false"
+  
+  # WebSocket
+  NEXT_PUBLIC_SOCKET_URL: "wss://ws-dev.tiktok-clone.example.com"
+  NEXT_PUBLIC_ENABLE_WEBSOCKET: "true"
+
+# -----------------------------------------------------------------------------
+# Health Probes - Faster in dev
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3

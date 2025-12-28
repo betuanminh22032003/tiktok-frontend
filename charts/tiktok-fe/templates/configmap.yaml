@@ -1,0 +1,42 @@
+# ============================================================================
+# TikTok Frontend - ConfigMap
+# ============================================================================
+# Kubernetes ConfigMap for non-sensitive configuration data.
+# ConfigMaps decouple configuration from container images.
+#
+# Use cases:
+# - Application configuration
+# - Feature flags
+# - Non-sensitive environment variables
+# ============================================================================
+
+{{- if .Values.configMap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # ConfigMap name
+  name: {{ include "tiktok-fe.fullname" . }}-config
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+data:
+  # Application environment
+  APP_ENV: {{ .Values.env.NEXT_PUBLIC_APP_ENV | default "production" | quote }}
+  
+  # API configuration
+  API_URL: {{ .Values.env.NEXT_PUBLIC_API_URL | default "" | quote }}
+  
+  # CDN configuration
+  CDN_URL: {{ .Values.env.NEXT_PUBLIC_CDN_URL | default "" | quote }}
+  
+  # Feature flags
+  ENABLE_UPLOAD: {{ .Values.env.NEXT_PUBLIC_ENABLE_UPLOAD | default "true" | quote }}
+  ENABLE_COMMENTS: {{ .Values.env.NEXT_PUBLIC_ENABLE_COMMENTS | default "true" | quote }}
+  
+  # Additional custom data
+  {{- with .Values.configMap.data }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}

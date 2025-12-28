@@ -1,0 +1,79 @@
+# ============================================================================
+# TikTok Frontend - NOTES.txt
+# ============================================================================
+# This file is displayed after helm install/upgrade.
+# Provides useful information about the deployment.
+# ============================================================================
+
+🎉 TikTok Frontend has been deployed!
+
+📋 Release Information:
+  - Name: {{ .Release.Name }}
+  - Namespace: {{ .Release.Namespace }}
+  - Chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+  - App Version: {{ .Chart.AppVersion }}
+
+🐳 Image:
+  - Repository: {{ .Values.image.repository }}
+  - Tag: {{ .Values.image.tag }}
+
+📊 Deployment Status:
+{{- if .Values.autoscaling.enabled }}
+  - Autoscaling: Enabled ({{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} replicas)
+{{- else }}
+  - Replicas: {{ .Values.replicaCount }}
+{{- end }}
+
+🌐 Access:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  - URL: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  - Get the NodePort:
+    export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "tiktok-fe.fullname" . }})
+    export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+    echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  - Get the LoadBalancer IP:
+    export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "tiktok-fe.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+    echo http://$SERVICE_IP:{{ .Values.service.port }}
+{{- else if contains "ClusterIP" .Values.service.type }}
+  - Port forward to access locally:
+    kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "tiktok-fe.fullname" . }} 8080:{{ .Values.service.port }}
+    echo "Visit http://localhost:8080"
+{{- end }}
+
+🔍 Useful Commands:
+
+  # Check pod status
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "tiktok-fe.name" . }}
+
+  # View logs
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "tiktok-fe.name" . }} -f
+
+  # Describe deployment
+  kubectl describe deployment -n {{ .Release.Namespace }} {{ include "tiktok-fe.fullname" . }}
+
+  # Scale deployment
+  kubectl scale deployment -n {{ .Release.Namespace }} {{ include "tiktok-fe.fullname" . }} --replicas=3
+
+  # Rollback
+  helm rollback {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+📚 Documentation:
+  - Project: https://github.com/your-org/tiktok-frontend
+  - Helm Chart: https://github.com/your-org/tiktok-frontend/tree/main/charts/tiktok-fe
+
+⚠️  Notes:
+{{- if not .Values.ingress.enabled }}
+  - Ingress is disabled. Enable it in values.yaml for external access.
+{{- end }}
+{{- if not .Values.autoscaling.enabled }}
+  - Autoscaling is disabled. Enable HPA for production workloads.
+{{- end }}
+{{- if not .Values.podDisruptionBudget.enabled }}
+  - PDB is disabled. Enable for high availability.
+{{- end }}

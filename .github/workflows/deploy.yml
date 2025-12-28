@@ -1,0 +1,294 @@
+# ============================================================================
+# TikTok Frontend - Deploy to Environment Workflow
+# ============================================================================
+# This workflow handles manual deployments and environment promotions.
+# It updates Helm values to trigger ArgoCD sync.
+#
+# Use cases:
+# - Manual deployment to specific environment
+# - Promote image from one environment to another
+# - Rollback to previous version
+# ============================================================================
+
+name: Deploy to Environment
+
+# Only manual trigger
+on:
+  workflow_dispatch:
+    inputs:
+      # Target environment
+      environment:
+        description: 'Target environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      
+      # Image tag to deploy
+      image_tag:
+        description: 'Image tag to deploy (leave empty to use latest from source env)'
+        required: false
+        type: string
+      
+      # Source environment for promotion
+      promote_from:
+        description: 'Promote image from this environment (optional)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - dev
+          - staging
+      
+      # Reason for deployment
+      reason:
+        description: 'Reason for this deployment'
+        required: true
+        type: string
+
+# Only one deployment at a time per environment
+concurrency:
+  group: deploy-${{ github.event.inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ===========================================================================
+  # Job 1: Validate Deployment
+  # ===========================================================================
+  validate:
+    name: ✅ Validate Deployment
+    runs-on: ubuntu-latest
+    
+    outputs:
+      image_tag: ${{ steps.resolve-tag.outputs.tag }}
+      approved: ${{ steps.approval.outputs.approved }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      # Resolve the image tag to deploy
+      - name: 🏷️ Resolve Image Tag
+        id: resolve-tag
+        run: |
+          TARGET_ENV="${{ github.event.inputs.environment }}"
+          INPUT_TAG="${{ github.event.inputs.image_tag }}"
+          PROMOTE_FROM="${{ github.event.inputs.promote_from }}"
+          
+          # If tag is provided, use it
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+            echo "Using provided tag: $TAG"
+          
+          # If promoting from another environment
+          elif [ -n "$PROMOTE_FROM" ]; then
+            # Get tag from source environment's values file
+            SOURCE_VALUES="charts/tiktok-fe/values-${PROMOTE_FROM}.yaml"
+            
+            if [ ! -f "$SOURCE_VALUES" ]; then
+              echo "❌ Source values file not found: $SOURCE_VALUES"
+              exit 1
+            fi
+            
+            # Extract tag from values file
+            TAG=$(grep "tag:" "$SOURCE_VALUES" | head -1 | awk '{print $2}' | tr -d '"')
+            
+            if [ -z "$TAG" ]; then
+              echo "❌ Could not find image tag in $SOURCE_VALUES"
+              exit 1
+            fi
+            
+            echo "Promoting tag from $PROMOTE_FROM: $TAG"
+          
+          else
+            echo "❌ Either image_tag or promote_from must be specified"
+            exit 1
+          fi
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      # Validate the image exists in registry
+      - name: 🔍 Validate Image Exists
+        run: |
+          TAG="${{ steps.resolve-tag.outputs.tag }}"
+          IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}"
+          
+          echo "Checking if image exists: $IMAGE"
+          
+          # Try to pull the image manifest
+          # This validates the image exists without downloading layers
+          docker manifest inspect "$IMAGE" > /dev/null 2>&1 || {
+            echo "❌ Image not found: $IMAGE"
+            exit 1
+          }
+          
+          echo "✅ Image validated: $IMAGE"
+        env:
+          DOCKER_CLI_EXPERIMENTAL: enabled
+
+      # Production requires approval
+      - name: ⚠️ Production Deployment Check
+        id: approval
+        if: github.event.inputs.environment == 'prod'
+        run: |
+          echo "⚠️ Production deployment requires review!"
+          echo ""
+          echo "Deployer: ${{ github.actor }}"
+          echo "Reason: ${{ github.event.inputs.reason }}"
+          echo "Image Tag: ${{ steps.resolve-tag.outputs.tag }}"
+          echo ""
+          echo "approved=true" >> $GITHUB_OUTPUT
+
+  # ===========================================================================
+  # Job 2: Deploy to Dev
+  # ===========================================================================
+  deploy-dev:
+    name: 🚀 Deploy to Dev
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: github.event.inputs.environment == 'dev'
+    environment:
+      name: development
+      url: https://dev.tiktok-clone.example.com
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update Values File
+        run: |
+          TAG="${{ needs.validate.outputs.image_tag }}"
+          VALUES_FILE="charts/tiktok-fe/values-dev.yaml"
+          
+          echo "Updating $VALUES_FILE with tag: $TAG"
+          sed -i "s|tag:.*|tag: \"${TAG}\"|g" "$VALUES_FILE"
+          
+          cat "$VALUES_FILE"
+
+      - name: 📤 Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add charts/
+          git commit -m "deploy(dev): ${{ needs.validate.outputs.image_tag }} - ${{ github.event.inputs.reason }} [skip ci]" || exit 0
+          git push
+
+      - name: 📋 Deployment Summary
+        run: |
+          echo "## 🚀 Deployed to Development" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | dev |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ needs.validate.outputs.image_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployer | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Job 3: Deploy to Staging
+  # ===========================================================================
+  deploy-staging:
+    name: 🚀 Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: github.event.inputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.tiktok-clone.example.com
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update Values File
+        run: |
+          TAG="${{ needs.validate.outputs.image_tag }}"
+          VALUES_FILE="charts/tiktok-fe/values-staging.yaml"
+          
+          echo "Updating $VALUES_FILE with tag: $TAG"
+          sed -i "s|tag:.*|tag: \"${TAG}\"|g" "$VALUES_FILE"
+
+      - name: 📤 Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add charts/
+          git commit -m "deploy(staging): ${{ needs.validate.outputs.image_tag }} - ${{ github.event.inputs.reason }} [skip ci]" || exit 0
+          git push
+
+      - name: 📋 Deployment Summary
+        run: |
+          echo "## 🚀 Deployed to Staging" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | staging |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ needs.validate.outputs.image_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployer | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+
+  # ===========================================================================
+  # Job 4: Deploy to Production
+  # ===========================================================================
+  deploy-prod:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: github.event.inputs.environment == 'prod'
+    environment:
+      name: production
+      url: https://tiktok-clone.example.com
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update Values File
+        run: |
+          TAG="${{ needs.validate.outputs.image_tag }}"
+          VALUES_FILE="charts/tiktok-fe/values-prod.yaml"
+          
+          echo "Updating $VALUES_FILE with tag: $TAG"
+          sed -i "s|tag:.*|tag: \"${TAG}\"|g" "$VALUES_FILE"
+
+      - name: 📤 Commit and Push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add charts/
+          git commit -m "deploy(prod): ${{ needs.validate.outputs.image_tag }} - ${{ github.event.inputs.reason }} [skip ci]" || exit 0
+          git push
+
+      - name: 📋 Deployment Summary
+        run: |
+          echo "## 🚀 Deployed to Production" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | production |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Tag | ${{ needs.validate.outputs.image_tag }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployer | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+
+      # Notify on production deployment
+      - name: 📢 Notify Production Deployment
+        if: always()
+        run: |
+          echo "🚀 Production deployment completed!"
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.validate.outputs.image_tag }}"
+          # Add Slack/Teams notification here if needed

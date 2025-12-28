@@ -1,0 +1,307 @@
+# ============================================================================
+# TikTok Frontend - Continuous Integration (CI) Workflow
+# ============================================================================
+# This workflow runs on every push and pull request to ensure code quality.
+# It performs: linting, type checking, unit tests, and build verification.
+# 
+# Triggers:
+# - Push to main, develop, release/* branches
+# - Pull requests to main, develop branches
+# - Manual trigger via workflow_dispatch
+# ============================================================================
+
+name: CI - Lint, Test & Build
+
+# Workflow triggers - when this workflow should run
+on:
+  # Run on push to these branches
+  push:
+    branches:
+      - main           # Production branch
+      - develop        # Development branch
+      - 'release/*'    # Release branches (e.g., release/1.0.0)
+      - 'feature/*'    # Feature branches for early feedback
+    # Only run when these files change (optimization)
+    paths:
+      - 'app/**'           # Application source code
+      - 'libs/**'          # Library code
+      - 'config/**'        # Configuration files
+      - 'public/**'        # Static assets
+      - 'package*.json'    # Dependencies
+      - 'tsconfig.json'    # TypeScript config
+      - 'next.config.js'   # Next.js config
+      - '.github/workflows/ci.yml'  # This workflow file
+
+  # Run on pull requests to these branches
+  pull_request:
+    branches:
+      - main
+      - develop
+    # Same path filter as push
+    paths:
+      - 'app/**'
+      - 'libs/**'
+      - 'config/**'
+      - 'public/**'
+      - 'package*.json'
+      - 'tsconfig.json'
+      - 'next.config.js'
+
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      # Option to skip tests for faster iteration
+      skip_tests:
+        description: 'Skip test execution'
+        required: false
+        default: 'false'
+        type: boolean
+
+# Cancel in-progress runs when a new run is triggered
+# Saves CI minutes and resources
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Environment variables available to all jobs
+env:
+  # Node.js version to use across all jobs
+  NODE_VERSION: '20'
+  # Enable npm caching for faster installs
+  NPM_CACHE: 'npm'
+  # Disable Next.js telemetry
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  # ===========================================================================
+  # Job 1: Code Quality Checks (Lint + Type Check)
+  # ===========================================================================
+  # This job runs static analysis to catch errors early
+  quality:
+    name: 🔍 Code Quality
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Step 1: Checkout the repository code
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch only the latest commit for speed
+          fetch-depth: 1
+
+      # Step 2: Setup Node.js with caching
+      - name: 📦 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          # Enable npm cache for faster subsequent runs
+          cache: ${{ env.NPM_CACHE }}
+
+      # Step 3: Install dependencies
+      - name: 📚 Install Dependencies
+        run: |
+          # Use npm ci for deterministic, faster installs in CI
+          # --prefer-offline uses cache when possible
+          npm ci --prefer-offline
+        env:
+          # Skip optional dependencies to speed up install
+          NPM_CONFIG_OPTIONAL: false
+
+      # Step 4: Run ESLint for code style and potential bugs
+      - name: 🔧 Run ESLint
+        run: |
+          # Run linter and output results
+          # Continue on error to see all issues
+          npm run lint -- --max-warnings=0
+        continue-on-error: false
+
+      # Step 5: Run TypeScript type checking
+      - name: 📝 TypeScript Type Check
+        run: |
+          # Full type check without emitting files
+          npm run type-check
+        continue-on-error: false
+
+      # Step 6: Check code formatting with Prettier
+      - name: 🎨 Check Code Formatting
+        run: |
+          # Verify all files are properly formatted
+          npm run format:check
+        continue-on-error: false
+
+  # ===========================================================================
+  # Job 2: Unit & Integration Tests
+  # ===========================================================================
+  # This job runs the test suite with coverage reporting
+  test:
+    name: 🧪 Run Tests
+    runs-on: ubuntu-latest
+    # Only run if not skipped via workflow_dispatch
+    if: ${{ github.event.inputs.skip_tests != 'true' }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 📦 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ env.NPM_CACHE }}
+
+      - name: 📚 Install Dependencies
+        run: npm ci --prefer-offline
+
+      # Run tests with coverage
+      - name: 🧪 Run Unit Tests
+        run: |
+          # Run vitest with coverage reporting
+          npm run test:coverage -- --reporter=verbose
+        env:
+          # Set CI environment for test configuration
+          CI: true
+
+      # Upload coverage report as artifact
+      - name: 📊 Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+      # Optional: Comment coverage on PR
+      - name: 📈 Coverage Summary
+        if: github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vite-config-path: ./vitest.config.ts
+
+  # ===========================================================================
+  # Job 3: Build Verification
+  # ===========================================================================
+  # This job verifies the application builds successfully
+  build:
+    name: 🏗️ Build Application
+    runs-on: ubuntu-latest
+    # Run after quality checks pass
+    needs: [quality]
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 📦 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ env.NPM_CACHE }}
+
+      - name: 📚 Install Dependencies
+        run: npm ci --prefer-offline
+
+      # Cache Next.js build cache for faster rebuilds
+      - name: 🗄️ Cache Next.js Build
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+          # Cache key based on OS, Node version, and package-lock
+          key: nextjs-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ env.NODE_VERSION }}-${{ hashFiles('**/package-lock.json') }}-
+            nextjs-${{ runner.os }}-${{ env.NODE_VERSION }}-
+
+      # Build the application
+      - name: 🏗️ Build Next.js Application
+        run: |
+          # Production build with standalone output
+          npm run build
+        env:
+          # Use development API URL for build verification
+          NEXT_PUBLIC_API_URL: https://api-dev.example.com
+          NEXT_PUBLIC_APP_ENV: development
+
+      # Upload build artifacts for debugging
+      - name: 📦 Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-build
+          path: |
+            .next/
+            !.next/cache
+          retention-days: 1
+
+  # ===========================================================================
+  # Job 4: Security Scanning
+  # ===========================================================================
+  # This job scans for security vulnerabilities in dependencies
+  security:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    # Run in parallel with other jobs
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: ${{ env.NPM_CACHE }}
+
+      # Run npm audit to check for vulnerabilities
+      - name: 🔍 NPM Audit
+        run: |
+          # Audit dependencies for security issues
+          # --audit-level=high only fails on high/critical
+          npm audit --audit-level=high || true
+        continue-on-error: true
+
+      # Optional: Run Snyk security scan
+      # - name: 🛡️ Snyk Security Scan
+      #   uses: snyk/actions/node@master
+      #   env:
+      #     SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      #   with:
+      #     args: --severity-threshold=high
+
+  # ===========================================================================
+  # Job 5: Summary Status
+  # ===========================================================================
+  # This job provides a single status check for branch protection
+  ci-success:
+    name: ✅ CI Success
+    runs-on: ubuntu-latest
+    # Depends on all critical jobs
+    needs: [quality, test, build]
+    # Always run to report status
+    if: always()
+    
+    steps:
+      - name: 🎯 Check CI Status
+        run: |
+          # Check if all required jobs passed
+          if [ "${{ needs.quality.result }}" != "success" ]; then
+            echo "❌ Quality checks failed"
+            exit 1
+          fi
+          
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ Build failed"
+            exit 1
+          fi
+          
+          # Tests are optional if skipped
+          if [ "${{ needs.test.result }}" != "success" ] && [ "${{ needs.test.result }}" != "skipped" ]; then
+            echo "❌ Tests failed"
+            exit 1
+          fi
+          
+          echo "✅ All CI checks passed!"

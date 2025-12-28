@@ -1,0 +1,276 @@
+# ============================================================================
+# TikTok Frontend - Production Environment Values
+# ============================================================================
+# Configuration for the production environment.
+# Maximum security, reliability, and performance settings.
+#
+# Environment: prod
+# Purpose: Live production traffic
+# Cluster: prod-cluster
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Replica Configuration - High availability
+# -----------------------------------------------------------------------------
+replicaCount: 3
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
+image:
+  # Production registry
+  repository: ghcr.io/your-org/tiktok-frontend
+  
+  # Never use :latest in production
+  pullPolicy: IfNotPresent
+  
+  # Image tag - specific version, updated by CI/CD
+  tag: "1.0.0"
+
+# -----------------------------------------------------------------------------
+# Service Configuration
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+  annotations:
+    # Service annotations for monitoring
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "3000"
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration - Production domain
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: "nginx"
+  
+  annotations:
+    # Production-grade NGINX configuration
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
+    
+    # Security headers
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+    nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://tiktok-clone.example.com"
+    
+    # Production TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # WAF integration (if using)
+    # nginx.ingress.kubernetes.io/modsecurity-snippet: |
+    #   SecRuleEngine On
+  
+  hosts:
+    - host: tiktok-clone.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    # www redirect
+    - host: www.tiktok-clone.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  
+  tls:
+    - secretName: tiktok-fe-prod-tls
+      hosts:
+        - tiktok-clone.example.com
+        - www.tiktok-clone.example.com
+
+# -----------------------------------------------------------------------------
+# Resource Configuration - Production sizing
+# -----------------------------------------------------------------------------
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+# -----------------------------------------------------------------------------
+# Autoscaling - Enabled with production settings
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  
+  # Careful scaling behavior
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+
+# -----------------------------------------------------------------------------
+# PDB - Required for production
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  # At least 2 pods must be available during disruptions
+  minAvailable: 2
+
+# -----------------------------------------------------------------------------
+# Pod Anti-Affinity - Spread across zones
+# -----------------------------------------------------------------------------
+affinity:
+  podAntiAffinity:
+    # Hard requirement: never on same node
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+                - tiktok-fe
+        topologyKey: kubernetes.io/hostname
+    # Soft preference: spread across zones
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - tiktok-fe
+          topologyKey: topology.kubernetes.io/zone
+
+# Topology spread for even distribution
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: tiktok-fe
+
+# -----------------------------------------------------------------------------
+# Environment Variables - Production Configuration
+# -----------------------------------------------------------------------------
+env:
+  # Production environment
+  NEXT_PUBLIC_APP_ENV: "production"
+  NEXT_PUBLIC_APP_NAME: "TikTok Clone"
+  
+  # Production API URL
+  NEXT_PUBLIC_API_URL: "https://api.tiktok-clone.example.com"
+  
+  # Production CDN (CloudFront/Cloudflare)
+  NEXT_PUBLIC_CDN_URL: "https://cdn.tiktok-clone.example.com"
+  
+  # Debug disabled in production
+  NEXT_PUBLIC_API_DEBUG: "false"
+  
+  # Feature flags
+  NEXT_PUBLIC_ENABLE_UPLOAD: "true"
+  NEXT_PUBLIC_ENABLE_COMMENTS: "true"
+  NEXT_PUBLIC_ENABLE_LIVE: "false"
+  NEXT_PUBLIC_ENABLE_MESSAGING: "false"
+  
+  # Video constraints
+  NEXT_PUBLIC_MAX_VIDEO_DURATION: "60"
+  NEXT_PUBLIC_MAX_VIDEO_SIZE: "104857600"
+  
+  # WebSocket - Production
+  NEXT_PUBLIC_SOCKET_URL: "wss://ws.tiktok-clone.example.com"
+  NEXT_PUBLIC_ENABLE_WEBSOCKET: "true"
+  
+  # Monitoring enabled
+  NEXT_PUBLIC_ENABLE_MONITORING: "true"
+
+# Secrets from Kubernetes secrets
+envSecrets:
+  - name: NEXT_PUBLIC_SENTRY_DSN
+    secretName: tiktok-fe-secrets
+    secretKey: sentry-dsn
+  - name: NEXT_PUBLIC_GA_TRACKING_ID
+    secretName: tiktok-fe-secrets
+    secretKey: ga-tracking-id
+
+# -----------------------------------------------------------------------------
+# Health Probes - Production settings
+# -----------------------------------------------------------------------------
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 15
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: 3000
+  failureThreshold: 30
+  periodSeconds: 10
+
+# -----------------------------------------------------------------------------
+# Network Policy - Enabled for production
+# -----------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - port: 3000
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+    # Allow HTTPS to API
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: backend
+      ports:
+        - port: 443
+        - port: 80

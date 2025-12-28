@@ -1,0 +1,206 @@
+# ============================================================================
+# TikTok Frontend - Deployment
+# ============================================================================
+# Kubernetes Deployment resource for the TikTok Frontend application.
+# This manages the desired state of pods running the Next.js application.
+#
+# Features:
+# - Rolling updates for zero-downtime deployments
+# - Health probes for reliability
+# - Resource limits for stability
+# - Security context for hardening
+# ============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Resource name derived from release and chart name
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace from helm install --namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels for resource identification and grouping
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+  # Annotations for additional metadata
+  annotations:
+    # Track deployment history for rollback
+    kubernetes.io/change-cause: "Deployed version {{ .Values.image.tag }}"
+spec:
+  # Number of pod replicas (ignored if HPA enabled)
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  
+  # Revision history limit for rollbacks
+  revisionHistoryLimit: 10
+  
+  # Pod selector - must match pod template labels
+  selector:
+    matchLabels:
+      {{- include "tiktok-fe.selectorLabels" . | nindent 6 }}
+  
+  # Rolling update strategy for zero-downtime deployments
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Maximum pods that can be unavailable during update
+      maxUnavailable: 0
+      # Maximum pods that can be created above desired count
+      maxSurge: 1
+  
+  # Pod template specification
+  template:
+    metadata:
+      # Pod annotations
+      annotations:
+        # Checksum triggers pod restart when config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      # Pod labels
+      labels:
+        {{- include "tiktok-fe.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    
+    spec:
+      # Image pull secrets for private registries
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Service account for RBAC
+      serviceAccountName: {{ include "tiktok-fe.serviceAccountName" . }}
+      
+      # Pod security context
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      
+      # Graceful termination period (seconds)
+      terminationGracePeriodSeconds: 30
+      
+      # DNS policy for service discovery
+      dnsPolicy: ClusterFirst
+      
+      # Init containers (run before main container)
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Main containers
+      containers:
+        # Next.js application container
+        - name: {{ .Chart.Name }}
+          
+          # Container security context
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          
+          # Container image
+          image: {{ include "tiktok-fe.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          # Container ports
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          
+          # Environment variables
+          env:
+            # Standard environment variables
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            # Pod information for debugging
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Application environment variables from values
+            {{- include "tiktok-fe.envVars" . | nindent 12 }}
+          
+          # Liveness probe - restarts container if unhealthy
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          # Readiness probe - removes from service if not ready
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          # Startup probe - for slow-starting containers
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          
+          # Resource requests and limits
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          
+          # Volume mounts
+          volumeMounts:
+            # Temp directory for Next.js cache (read-only root filesystem)
+            - name: tmp
+              mountPath: /tmp
+            - name: nextjs-cache
+              mountPath: /app/.next/cache
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        
+        # Sidecar containers
+        {{- with .Values.sidecars }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      
+      # Volumes
+      volumes:
+        # EmptyDir for temp files (supports read-only root filesystem)
+        - name: tmp
+          emptyDir: {}
+        # EmptyDir for Next.js build cache
+        - name: nextjs-cache
+          emptyDir: {}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      
+      # Node selector for pod placement
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Affinity rules for pod placement
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Tolerations for tainted nodes
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      
+      # Topology spread constraints
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,99 @@
+# ============================================================================
+# TikTok Frontend - ArgoCD Application (Production)
+# ============================================================================
+# ArgoCD Application manifest for GitOps deployment to production.
+# Production requires manual sync approval for safety.
+#
+# Safety Features:
+# - Manual sync only (no auto-sync)
+# - Requires approval
+# - Detailed notifications
+# - Strict health checks
+# ============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Application name
+  name: tiktok-fe-prod
+  # ArgoCD namespace
+  namespace: argocd
+  # Labels
+  labels:
+    app.kubernetes.io/name: tiktok-fe
+    app.kubernetes.io/instance: prod
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/part-of: tiktok-clone
+    environment: production
+  # Finalizer
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  # Annotations for notifications
+  annotations:
+    # Slack notifications
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: tiktok-prod-deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: tiktok-prod-alerts
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: tiktok-prod-alerts
+    # Email notifications
+    notifications.argoproj.io/subscribe.on-sync-succeeded.email: platform-team@example.com
+    notifications.argoproj.io/subscribe.on-sync-failed.email: platform-team@example.com
+spec:
+  # Project
+  project: default
+  
+  # Source configuration
+  source:
+    # Repository URL
+    repoURL: https://github.com/your-org/tiktok-frontend.git
+    
+    # Track main branch with specific tags for production
+    targetRevision: main
+    
+    # Helm chart path
+    path: charts/tiktok-fe
+    
+    # Helm configuration
+    helm:
+      valueFiles:
+        - values.yaml        # Base values
+        - values-prod.yaml   # Production overrides
+      
+      parameters: []
+      skipCrds: false
+  
+  # Destination
+  destination:
+    # Production cluster
+    server: https://kubernetes.default.svc
+    
+    # Production namespace
+    namespace: tiktok-prod
+  
+  # Sync policy - MANUAL for production safety
+  syncPolicy:
+    # NO automated sync for production!
+    # Deployments require manual approval via ArgoCD UI or CLI
+    # automated: {}  # Intentionally disabled
+    
+    syncOptions:
+      - CreateNamespace=true
+      - Validate=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+  
+  # Ignore dynamic differences
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  
+  revisionHistoryLimit: 20

@@ -1,0 +1,156 @@
+# ============================================================================
+# TikTok Frontend - ArgoCD Project
+# ============================================================================
+# ArgoCD AppProject defines boundaries and permissions for applications.
+# Projects provide multi-tenancy and access control in ArgoCD.
+#
+# Features:
+# - Restrict source repositories
+# - Restrict destination clusters/namespaces
+# - Define RBAC policies
+# - Configure sync windows
+# ============================================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  # Project name
+  name: tiktok-clone
+  # ArgoCD namespace
+  namespace: argocd
+  # Labels
+  labels:
+    app.kubernetes.io/part-of: tiktok-clone
+  # Finalizer
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  # Project description
+  description: TikTok Clone Frontend and Related Services
+  
+  # Allowed source repositories
+  sourceRepos:
+    # Allow main repository
+    - https://github.com/your-org/tiktok-frontend.git
+    # Allow Helm chart repositories if needed
+    - https://charts.bitnami.com/bitnami
+  
+  # Allowed destination clusters and namespaces
+  destinations:
+    # Development
+    - namespace: tiktok-dev
+      server: https://kubernetes.default.svc
+    # Staging
+    - namespace: tiktok-staging
+      server: https://kubernetes.default.svc
+    # Production
+    - namespace: tiktok-prod
+      server: https://kubernetes.default.svc
+  
+  # Allowed cluster-scoped resources
+  clusterResourceWhitelist:
+    # Allow Namespace creation
+    - group: ''
+      kind: Namespace
+    # Allow ClusterRole for RBAC
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  
+  # Allowed namespace-scoped resources
+  namespaceResourceWhitelist:
+    # Core resources
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Secret
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: ''
+      kind: PersistentVolumeClaim
+    # Apps
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
+    - group: apps
+      kind: ReplicaSet
+    # Batch
+    - group: batch
+      kind: Job
+    - group: batch
+      kind: CronJob
+    # Networking
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    # Autoscaling
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    # Policy
+    - group: policy
+      kind: PodDisruptionBudget
+  
+  # Denied resources (blacklist)
+  namespaceResourceBlacklist: []
+  clusterResourceBlacklist: []
+  
+  # RBAC roles for this project
+  roles:
+    # Admin role - full access
+    - name: admin
+      description: Full access to TikTok Clone project
+      policies:
+        - p, proj:tiktok-clone:admin, applications, *, tiktok-clone/*, allow
+      groups:
+        - platform-admins
+    
+    # Developer role - read + sync
+    - name: developer
+      description: Read access and sync for non-production
+      policies:
+        - p, proj:tiktok-clone:developer, applications, get, tiktok-clone/*, allow
+        - p, proj:tiktok-clone:developer, applications, sync, tiktok-clone/tiktok-fe-dev, allow
+        - p, proj:tiktok-clone:developer, applications, sync, tiktok-clone/tiktok-fe-staging, allow
+      groups:
+        - developers
+    
+    # Read-only role
+    - name: readonly
+      description: Read-only access
+      policies:
+        - p, proj:tiktok-clone:readonly, applications, get, tiktok-clone/*, allow
+      groups:
+        - viewers
+  
+  # Sync windows (maintenance windows)
+  syncWindows:
+    # Deny production syncs during business hours (Mon-Fri 9-17)
+    - kind: deny
+      schedule: '0 9-17 * * 1-5'
+      duration: 8h
+      applications:
+        - tiktok-fe-prod
+      namespaces:
+        - tiktok-prod
+      manualSync: true  # Allow manual sync override
+    
+    # Allow dev/staging syncs anytime
+    - kind: allow
+      schedule: '* * * * *'
+      duration: 24h
+      applications:
+        - tiktok-fe-dev
+        - tiktok-fe-staging
+      manualSync: true
+  
+  # Orphaned resources monitoring
+  orphanedResources:
+    warn: true
+    ignore: []

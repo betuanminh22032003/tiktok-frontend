@@ -1,0 +1,38 @@
+# ============================================================================
+# TikTok Frontend - Pod Disruption Budget
+# ============================================================================
+# Kubernetes PDB to ensure minimum availability during disruptions.
+# Protects against voluntary disruptions like node drains and upgrades.
+#
+# Important: PDB does NOT protect against involuntary disruptions
+# (node failures, kernel panics, etc.)
+# ============================================================================
+
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  # PDB name
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+spec:
+  # Selector to identify pods covered by this PDB
+  selector:
+    matchLabels:
+      {{- include "tiktok-fe.selectorLabels" . | nindent 6 }}
+  
+  # Minimum available pods during disruption
+  # Use either minAvailable OR maxUnavailable, not both
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  # Default: at least 1 pod must be available
+  minAvailable: 1
+  {{- end }}
+{{- end }}

@@ -1,0 +1,78 @@
+# ============================================================================
+# TikTok Frontend - Network Policy
+# ============================================================================
+# Kubernetes NetworkPolicy for pod-level network segmentation.
+# Controls ingress (incoming) and egress (outgoing) traffic to pods.
+#
+# Prerequisites:
+# - CNI plugin that supports NetworkPolicy (Calico, Cilium, etc.)
+#
+# Default behavior:
+# - If no policy exists, all traffic is allowed
+# - Once a policy is applied, only explicitly allowed traffic is permitted
+# ============================================================================
+
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  # NetworkPolicy name
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+spec:
+  # Pods this policy applies to
+  podSelector:
+    matchLabels:
+      {{- include "tiktok-fe.selectorLabels" . | nindent 6 }}
+  
+  # Policy types to enforce
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  # Ingress rules (incoming traffic)
+  {{- if .Values.networkPolicy.ingress }}
+  ingress:
+    {{- toYaml .Values.networkPolicy.ingress | nindent 4 }}
+  {{- else }}
+  # Default: allow from ingress controller
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+  {{- end }}
+  
+  # Egress rules (outgoing traffic)
+  {{- if .Values.networkPolicy.egress }}
+  egress:
+    {{- toYaml .Values.networkPolicy.egress | nindent 4 }}
+  {{- else }}
+  # Default: allow DNS and HTTPS
+  egress:
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow HTTPS to external services
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+  {{- end }}
+{{- end }}

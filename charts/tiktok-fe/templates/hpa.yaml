@@ -1,0 +1,66 @@
+# ============================================================================
+# TikTok Frontend - Horizontal Pod Autoscaler
+# ============================================================================
+# Kubernetes HPA for automatic scaling based on resource utilization.
+# Automatically adjusts replica count to maintain target utilization.
+#
+# Metrics:
+# - CPU utilization
+# - Memory utilization
+# - Custom metrics (with metrics server)
+# ============================================================================
+
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  # HPA name
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+spec:
+  # Reference to the Deployment to scale
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "tiktok-fe.fullname" . }}
+  
+  # Minimum number of replicas
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  
+  # Maximum number of replicas
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  
+  # Metrics to use for scaling decisions
+  metrics:
+    # CPU-based scaling
+    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # Target CPU utilization percentage
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- end }}
+    
+    # Memory-based scaling
+    {{- if .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          # Target memory utilization percentage
+          averageUtilization: {{ .Values.autoscaling.targetMemoryUtilizationPercentage }}
+    {{- end }}
+  
+  # Scaling behavior configuration
+  {{- if .Values.autoscaling.behavior }}
+  behavior:
+    {{- toYaml .Values.autoscaling.behavior | nindent 4 }}
+  {{- end }}
+{{- end }}

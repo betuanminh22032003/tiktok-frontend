@@ -1,0 +1,65 @@
+# ============================================================================
+# TikTok Frontend - Ingress
+# ============================================================================
+# Kubernetes Ingress resource for external HTTP/HTTPS access.
+# Routes external traffic to the internal Service based on host and path.
+#
+# Prerequisites:
+# - Ingress controller installed (nginx, traefik, etc.)
+# - cert-manager for automatic TLS (optional)
+# ============================================================================
+
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # Ingress name
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+  # Annotations for ingress controller configuration
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Ingress class determines which controller handles this ingress
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  
+  # TLS configuration for HTTPS
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- range .Values.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      # Secret containing TLS certificate
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  
+  # Routing rules
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            # PathType: Prefix, Exact, or ImplementationSpecific
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                # Service to route to
+                name: {{ include "tiktok-fe.fullname" $ }}
+                port:
+                  number: {{ $.Values.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

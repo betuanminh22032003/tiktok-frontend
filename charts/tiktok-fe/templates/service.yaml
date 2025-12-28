@@ -1,0 +1,53 @@
+# ============================================================================
+# TikTok Frontend - Service
+# ============================================================================
+# Kubernetes Service resource for internal load balancing and service discovery.
+# This exposes the deployment pods to other services within the cluster.
+#
+# Service Types:
+# - ClusterIP: Internal only (default, use with Ingress)
+# - NodePort: Expose on static node port
+# - LoadBalancer: Cloud provider load balancer
+# ============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  # Service name - used for DNS discovery (service.namespace.svc.cluster.local)
+  name: {{ include "tiktok-fe.fullname" . }}
+  # Namespace
+  namespace: {{ .Release.Namespace }}
+  # Labels for identification
+  labels:
+    {{- include "tiktok-fe.labels" . | nindent 4 }}
+  # Service annotations (e.g., for cloud provider LB config)
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # Service type determines how the service is exposed
+  type: {{ .Values.service.type }}
+  
+  # Session affinity (None or ClientIP)
+  # ClientIP routes same client to same pod
+  sessionAffinity: None
+  
+  # Selector to find backend pods
+  # Must match pod labels in deployment
+  selector:
+    {{- include "tiktok-fe.selectorLabels" . | nindent 4 }}
+  
+  # Port configuration
+  ports:
+    - name: http
+      # Port exposed by the service
+      port: {{ .Values.service.port }}
+      # Port on the target pod
+      targetPort: {{ .Values.service.targetPort }}
+      # Protocol (TCP/UDP)
+      protocol: {{ .Values.service.protocol | default "TCP" }}
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      # NodePort (only for NodePort type)
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}

@@ -1,0 +1,85 @@
+# ============================================================================
+# TikTok Frontend - Helm Chart Metadata
+# ============================================================================
+# Chart.yaml defines the metadata for this Helm chart.
+# This information is used by Helm and artifact repositories.
+# ============================================================================
+
+# API version for Helm Chart (v2 is current standard)
+# v2 is required for Helm 3.x
+apiVersion: v2
+
+# Chart name - used for chart identification
+# Should be lowercase and hyphenated
+name: tiktok-fe
+
+# Human-readable description of the chart
+# Displayed in helm search and artifact hub
+description: |
+  TikTok Clone Frontend Application
+  A production-ready Next.js application deployed on Kubernetes.
+  Features vertical video feed, user profiles, and video upload.
+
+# Chart type: application or library
+# application: Deployable chart with templates
+# library: Reusable chart components (no templates)
+type: application
+
+# Chart version - follows SemVer 2.0
+# Increment this for ANY chart changes (templates, values, etc.)
+# MAJOR.MINOR.PATCH
+version: 1.0.0
+
+# Application version - version of the app being deployed
+# This should match your application's version
+# Updated automatically by CI/CD
+appVersion: "1.0.0"
+
+# Keywords for search and categorization
+keywords:
+  - tiktok
+  - nextjs
+  - frontend
+  - react
+  - video
+  - social-media
+
+# Home page URL for the project
+home: https://github.com/your-org/tiktok-frontend
+
+# Source code repository URLs
+sources:
+  - https://github.com/your-org/tiktok-frontend
+
+# Maintainers of this chart
+maintainers:
+  - name: Platform Team
+    email: platform@example.com
+    url: https://github.com/your-org
+
+# Icon URL for UI display (artifact hub, rancher, etc.)
+icon: https://raw.githubusercontent.com/your-org/tiktok-frontend/main/public/images/logo.png
+
+# Annotations for additional metadata
+annotations:
+  # Category for artifact hub
+  category: web-application
+  # License
+  licenses: MIT
+  # Artifact Hub specific annotations
+  artifacthub.io/changes: |
+    - Initial release
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/license: MIT
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/signKey: |
+    fingerprint: YOUR_GPG_FINGERPRINT
+    url: https://your-org.github.io/gpg-key.asc
+
+# Dependencies (other charts this chart depends on)
+# Uncomment if you need Redis, PostgreSQL, etc.
+# dependencies:
+#   - name: redis
+#     version: "17.x.x"
+#     repository: "https://charts.bitnami.com/bitnami"
+#     condition: redis.enabled

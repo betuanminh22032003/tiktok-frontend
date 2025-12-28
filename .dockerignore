@@ -1,27 +1,53 @@
-# Dependencies
+# ============================================================================
+# TikTok Frontend - Docker Ignore File
+# ============================================================================
+# Excludes files from Docker build context for:
+# - Faster builds (smaller context transfer)
+# - Smaller images (no unnecessary files)
+# - Security (no secrets in images)
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# Dependencies - Rebuilt in container
+# -----------------------------------------------------------------------------
 node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Build outputs
+# -----------------------------------------------------------------------------
+# Build outputs - Rebuilt in container
+# -----------------------------------------------------------------------------
 .next
 out
 dist
 build
+.turbo
 
-# Testing
+# -----------------------------------------------------------------------------
+# Test files - Not needed in production
+# -----------------------------------------------------------------------------
+__tests__
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
 coverage
 .nyc_output
-__tests__
+vitest.config.ts
+vitest.setup.ts
 
-# Environment
+# -----------------------------------------------------------------------------
+# Environment files - Secrets should be injected at runtime
+# -----------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
 
-# IDEs
+# -----------------------------------------------------------------------------
+# IDE and editor files
+# -----------------------------------------------------------------------------
 .vscode
 .idea
 *.swp
@@ -29,25 +55,53 @@ __tests__
 *~
 .DS_Store
 
-# Git
+# -----------------------------------------------------------------------------
+# Git files - Not needed in container
+# -----------------------------------------------------------------------------
 .git
 .gitignore
 .gitattributes
 
-# CI/CD
+# -----------------------------------------------------------------------------
+# CI/CD files - Not needed in container
+# -----------------------------------------------------------------------------
 .github
 .gitlab-ci.yml
+.travis.yml
+Jenkinsfile
 
-# Documentation
+# -----------------------------------------------------------------------------
+# Documentation - Not needed in runtime
+# -----------------------------------------------------------------------------
 README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+docs/
 *.md
-docs
 
-# Misc
+# -----------------------------------------------------------------------------
+# Kubernetes/Helm - Not needed in container
+# -----------------------------------------------------------------------------
+charts/
+k8s/
+argocd/
+helm/
+
+# -----------------------------------------------------------------------------
+# Config files not needed in production
+# -----------------------------------------------------------------------------
 .prettierrc
-.eslintrc
+.eslintrc*
 .editorconfig
-vitest.config.ts
+tsconfig.tsbuildinfo
+
+# -----------------------------------------------------------------------------
+# Docker files (avoid recursive copy)
+# -----------------------------------------------------------------------------
+Dockerfile*
+docker-compose*
+.dockerignore
 vitest.setup.ts
 # include tsconfig so path aliases work inside Docker
 # tsconfig.json
