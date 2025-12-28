@@ -100,9 +100,8 @@ jobs:
       # Step 3: Install dependencies
       - name: 📚 Install Dependencies
         run: |
-          # Use npm ci for deterministic, faster installs in CI
-          # --prefer-offline uses cache when possible
-          npm ci --prefer-offline
+          # Install dependencies with legacy-peer-deps for React 19 compatibility
+          npm install --legacy-peer-deps
         env:
           # Skip optional dependencies to speed up install
           NPM_CONFIG_OPTIONAL: false
@@ -152,7 +151,7 @@ jobs:
           cache: ${{ env.NPM_CACHE }}
 
       - name: 📚 Install Dependencies
-        run: npm ci --prefer-offline
+        run: npm install --legacy-peer-deps
 
       # Run tests with coverage
       - name: 🧪 Run Unit Tests
@@ -204,7 +203,7 @@ jobs:
           cache: ${{ env.NPM_CACHE }}
 
       - name: 📚 Install Dependencies
-        run: npm ci --prefer-offline
+        run: npm install --legacy-peer-deps
 
       # Cache Next.js build cache for faster rebuilds
       - name: 🗄️ Cache Next.js Build

@@ -54,15 +54,15 @@ RUN apk add --no-cache \
 COPY package.json package-lock.json* ./
 
 # Install dependencies based on lock file presence
-# npm ci: Clean install, faster and more reliable for CI
+# --legacy-peer-deps: Required for React 19 compatibility
 # --ignore-scripts: Security - don't run postinstall scripts during build
 RUN if [ -f package-lock.json ]; then \
-        # Production install with exact versions from lock file
-        npm ci --ignore-scripts; \
+        # Production install with legacy-peer-deps for React 19
+        npm install --legacy-peer-deps --ignore-scripts; \
     else \
         # Fallback if no lock file (not recommended for production)
         echo "Warning: package-lock.json not found" && \
-        npm install --ignore-scripts; \
+        npm install --legacy-peer-deps --ignore-scripts; \
     fi
 
 # -----------------------------------------------------------------------------
