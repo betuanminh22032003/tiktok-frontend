@@ -15,8 +15,7 @@ const PostMain = memo(function PostMain({ post }: PostMainCompTypes) {
   const observerRef = useRef<IntersectionObserver | null>(null)
 
   // Compute URLs (useCreateBucketUrl is not a React hook, just a utility function)
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const profileImageUrl = post?.user?.id ? '../../public/images/default-avatar.png' : null
+  const profileImageUrl = post?.user?.id ? 'https://i.pravatar.cc/150?u=johndoe' : null
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const videoUrl = post?.videoUrl ? useCreateBucketUrl(post.videoUrl) : ''
 
